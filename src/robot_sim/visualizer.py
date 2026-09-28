@@ -1,0 +1,55 @@
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Polygon as PolygonPatch
+import numpy as np
+from numpy.typing import NDArray
+from .robot import Robot
+from .world import World
+
+
+class Visualizer:
+    def __init__(self, world: World, trail_interval: float = 0.5):
+        self.obstacles = world.obstacles
+        self.size = [world.size_x, world.size_y]
+        # Sim-time seconds between trail points
+        self.trail_interval = trail_interval
+        self._time_since_trail = trail_interval  # drop a point on the first frame
+
+        plt.ion()
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_aspect("equal")
+        self.ax.set_xlim(0, world.size_x)
+        self.ax.set_ylim(0, world.size_y)
+        for obstacle in self.obstacles:
+            self.ax.add_patch(PolygonPatch(obstacle.vertices, closed=True, facecolor="tab:red", alpha=0.4, edgecolor="tab:red"))
+        self.trail_x: list[float] = []
+        self.trail_y: list[float] = []
+        (self.trail_line,) = self.ax.plot([], [], ".", color="tab:gray", markersize=4)
+        (self.robot_marker,) = self.ax.plot([], [], "o", color="tab:blue", markersize=10)
+        self._legend_labels: set[str] = set()
+
+    def add_point(self, position: NDArray[np.float64], color: str, label: str | None = None) -> Line2D:
+        if label in self._legend_labels:
+            label = None
+        (marker,) = self.ax.plot([position[0]], [position[1]], "o", color=color, markersize=7, label=label, zorder=3)
+        if label is not None:
+            self._legend_labels.add(label)
+            self.ax.legend(loc="upper left", fontsize="small")
+        return marker
+
+    def move_point(self, marker: Line2D, position: NDArray[np.float64]):
+        marker.set_data([position[0]], [position[1]])
+
+    def update(self, robot: Robot, dT: float):
+        x, y = robot.position[0], robot.position[1]
+        self.robot_marker.set_data([x], [y])
+
+        self._time_since_trail += dT
+        if self._time_since_trail >= self.trail_interval:
+            self._time_since_trail = 0.0
+            self.trail_x.append(x)
+            self.trail_y.append(y)
+            self.trail_line.set_data(self.trail_x, self.trail_y)
+
+        self.fig.canvas.draw_idle()
+        plt.pause(dT)
