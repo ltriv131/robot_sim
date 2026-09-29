@@ -39,16 +39,9 @@ class RadialDistanceSensor:
         self.sensors = [DistanceSensor(2.0*math.pi/resolution*n, max_range) for n in range(resolution)]
     def measure(self, robot: Robot, world: World):
         measurements = [s.measure(robot, world) for s in self.sensors]
-        angles = np.array([m.theta for m in measurements])
-        dists = np.array([m.distance for m in measurements])
-        return RadialRangeArray(measurements=measurements, discontinuities=self.get_discontinuities(angles, dists), max_range=self.max_range)
-    def get_discontinuities(self, angles, dists):
-        # Treat out-of-range as max_range so finite/inf transitions still register as jumps
-        d = np.minimum(dists, self.max_range)
-        # Jump between each ray and the next (wrapping around); mark both rays on either side of it
-        jumps = np.abs(np.roll(d, -1) - d) > self.jump_threshold
-        discontinuities = np.where(jumps | np.roll(jumps, 1))[0]
-        return angles[discontinuities]
+        
+        return RadialRangeArray(measurements=measurements)
+    
 
 
 
