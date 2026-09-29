@@ -52,20 +52,7 @@ class TangentBug(Planner):
     def dist(self, a, b):
         return np.linalg.norm(b-a)
     
-    def get_discontinuities(self, angles, dists):
-        s = Series(dists)
-        local_std = s.rolling(window=3, min_periods=3).std()
-        local_mean = s.rolling(window=3, min_periods=3).mean()
-
-        local_std.replace(0,1e-8)
-
-        z_scores = abs((s-local_mean)/local_std)
-
-        discontinuities = np.where(z_scores > 2)[0]
-        print(discontinuities)
-        angles_discon = angles[discontinuities]
-        ranges_discon = dists[discontinuities]
-        return [(ranges_discon[i]*math.cos(angles_discon[i]), ranges_discon[i]*math.sin(angles_discon[i])) for i in range(len(angles_discon))]
+    
         
     def get_direction(self):
         return self.direction

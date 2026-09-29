@@ -48,15 +48,24 @@ class Visualizer:
         x, y = robot.position[0], robot.position[1]
         self.robot_marker.set_data([x], [y])
 
-        # One ray per range measurement, from the robot out to the measured distance
-        rays = []
+        # One ray per range measurement, from the robot out to the measured distance.
+        # Out-of-range rays are drawn red at max range; discontinuities are drawn bold.
+        rays, colors, widths = [], [], []
         if observation is not None and observation.radial_array is not None:
-            for m in observation.radial_array.measurements:
-                if not np.isfinite(m.distance):
+            radial = observation.radial_array
+            discontinuities = np.asarray(radial.discontinuities)
+            for m in radial.measurements:
+                in_range = np.isfinite(m.distance)
+                if not in_range and not np.isfinite(radial.max_range):
                     continue
-                end = (x + m.distance * np.cos(m.theta), y + m.distance * np.sin(m.theta))
+                d = m.distance if in_range else radial.max_range
+                end = (x + d * np.cos(m.theta), y + d * np.sin(m.theta))
                 rays.append([(x, y), end])
+                colors.append("tab:cyan" if in_range else "tab:red")
+                widths.append(2.5 if np.isin(m.theta, discontinuities) else 0.8)
         self.range_rays.set_segments(rays)
+        self.range_rays.set_colors(colors)
+        self.range_rays.set_linewidths(widths)
 
         self._time_since_trail += dT
         if self._time_since_trail >= self.trail_interval:

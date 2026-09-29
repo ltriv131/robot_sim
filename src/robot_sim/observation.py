@@ -34,6 +34,8 @@ class RangeMeasurement:
 @dataclass
 class RadialRangeArray:
     measurements: NDArray
+    discontinuities: NDArray
+    max_range: float = np.inf
 
 
 
