@@ -1,8 +1,10 @@
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon as PolygonPatch
 import numpy as np
 from numpy.typing import NDArray
+from .observation import Observation
 from .robot import Robot
 from .world import World
 
@@ -26,6 +28,8 @@ class Visualizer:
         self.trail_y: list[float] = []
         (self.trail_line,) = self.ax.plot([], [], ".", color="tab:gray", markersize=4)
         (self.robot_marker,) = self.ax.plot([], [], "o", color="tab:blue", markersize=10)
+        self.range_rays = LineCollection([], colors="tab:cyan", linewidths=0.8, alpha=0.6)
+        self.ax.add_collection(self.range_rays)
         self._legend_labels: set[str] = set()
 
     def add_point(self, position: NDArray[np.float64], color: str, label: str | None = None) -> Line2D:
@@ -40,9 +44,19 @@ class Visualizer:
     def move_point(self, marker: Line2D, position: NDArray[np.float64]):
         marker.set_data([position[0]], [position[1]])
 
-    def update(self, robot: Robot, dT: float):
+    def update(self, robot: Robot, dT: float, observation: Observation | None = None):
         x, y = robot.position[0], robot.position[1]
         self.robot_marker.set_data([x], [y])
+
+        # One ray per range measurement, from the robot out to the measured distance
+        rays = []
+        if observation is not None and observation.radial_array is not None:
+            for m in observation.radial_array.measurements:
+                if not np.isfinite(m.distance):
+                    continue
+                end = (x + m.distance * np.cos(m.theta), y + m.distance * np.sin(m.theta))
+                rays.append([(x, y), end])
+        self.range_rays.set_segments(rays)
 
         self._time_since_trail += dT
         if self._time_since_trail >= self.trail_interval:

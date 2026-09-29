@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from shapely.geometry import Polygon, Point
 from shapely.geometry.polygon import orient
 from shapely.ops import nearest_points
-
+import math
 
 class Obstacle(Protocol):
     def within(self, r, pos) -> bool:
@@ -59,3 +59,23 @@ class PolygonObstacle:
         b = np.array(ring.interpolate((d + eps) % ring.length).coords[0])
         t = b - a
         return t / np.linalg.norm(t)
+    def intersect(self, pos: NDArray[np.float64], theta: float, max_range: float) -> float:
+        """Distance along the ray from pos at angle theta to the nearest edge, or inf if none within max_range."""
+        e = max_range * np.array([math.cos(theta), math.sin(theta)])
+        closest = math.inf
+        for ind, v in enumerate(self.vertices):
+            v_1 = self.vertices[(ind + 1) % len(self.vertices)]
+            f = np.asarray(v_1, dtype=float) - v
+
+            # Solve v + s*f = pos + t*e for (s, t)
+            A = np.array([
+                [f[0], -e[0]],
+                [f[1], -e[1]]
+            ])
+            if abs(np.linalg.det(A)) < 1e-12:
+                continue  # ray parallel to edge
+            b = np.asarray(pos, dtype=float) - v
+            s, t = np.linalg.solve(A, b)
+            if 0 <= s <= 1 and 0 < t <= 1:
+                closest = min(closest, t * max_range)
+        return closest

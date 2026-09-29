@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 from typing import Protocol
 
 import numpy as np
 
-from ..observation import ContactMeasurement, Measurement, PositionMeasurement
+from ..observation import ContactMeasurement, Measurement, PositionMeasurement, RangeMeasurement, RadialRangeArray
 from ..robot import Robot
 from ..world import World
 
+import math
 
 class Sensor(Protocol):
     def measure(self, robot: Robot, world: World) -> Measurement:
@@ -28,3 +31,19 @@ class PositionSensor:
     def measure(self, robot: Robot, world: World) -> PositionMeasurement:
         # Copy so readings don't change as the robot moves
         return PositionMeasurement(robot.position.copy())
+
+class RadialDistanceSensor:
+    def __init__(self, resolution: int, max_range: float = 4.0):
+        self.sensors = [DistanceSensor(2.0*math.pi/resolution*n, max_range) for n in range(resolution)]
+    def measure(self, robot: Robot, world: World):
+        return RadialRangeArray([s.measure(robot, world) for s in self.sensors])
+    
+
+
+class DistanceSensor:
+    def __init__(self, theta: float, max_range: float = 4.0):
+        self.theta = theta
+        self.max_range = max_range
+    def measure(self, robot: Robot, world: World) -> RangeMeasurement:
+        d = min((ob.intersect(robot.position, self.theta, self.max_range) for ob in world.obstacles), default=math.inf)
+        return RangeMeasurement(theta=self.theta, distance=d)

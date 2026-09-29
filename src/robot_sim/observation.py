@@ -7,7 +7,8 @@ from typing import Protocol
 @dataclass
 class Observation:
     position: PositionMeasurement
-    contact: ContactMeasurement | None
+    contact: ContactMeasurement | None = None
+    radial_array: RadialRangeArray | None = None
     
 @dataclass
 class BugObservation(Observation):
@@ -24,6 +25,15 @@ class PositionMeasurement:
 class ContactMeasurement:
     contact: bool
     tangent: NDArray[np.float64]
+
+@dataclass
+class RangeMeasurement:
+    theta: float
+    distance: float
+
+@dataclass
+class RadialRangeArray:
+    measurements: NDArray
 
 
 
