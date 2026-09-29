@@ -32,7 +32,7 @@ def main():
     robot = Robot(position=np.array([1.0, 1.0]), orientation=0.0, max_linear_speed=8.0)
     planner = BugPlanner(goal=goal, visualizer=visualizer)
     planner_tangent = TangentBug(goal=goal, visualizer=visualizer)
-    simulation = Simulation(world, robot=robot, planner=planner_tangent, position_sensor=PositionSensor(), contact_sensor=ContactSensor(.2), radial_sensor=RadialDistanceSensor(100), goal=goal, visualizer=visualizer)
+    simulation = Simulation(world, robot=robot, planner=planner_tangent, position_sensor=PositionSensor(), contact_sensor=ContactSensor(.2), radial_sensor=RadialDistanceSensor(100, max_range = 7), goal=goal, visualizer=visualizer)
     simulation.start(.01)
 
 
