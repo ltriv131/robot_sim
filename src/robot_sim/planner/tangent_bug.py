@@ -10,6 +10,7 @@ import math
 class TangentBugState(Enum):
     MOVE_TO_GOAL = auto()
     FOLLOW_PATH = auto()
+    GOAL_REACHED = auto()
     
 @dataclass
 class ObstacleObject:
@@ -21,7 +22,7 @@ class ObstacleObject:
 class FollowDirection(Enum):
     CLOCKWISE = auto()
     COUNTERCLOCKWISE = auto()
-    GOAL_REACHED = auto()
+
 
 class TangentBug(Planner):
     def __init__(self, 
@@ -32,7 +33,7 @@ class TangentBug(Planner):
                  jump_threshold: float = 0.5,
                  visualizer: Visualizer | None = None
                  ):
-        
+        self.has_hit_wall = False
         self.goal = np.asarray(goal, dtype=float)
         self.goal_tolerance = goal_tolerance
         self.offset_tolerance = offset_tolerance
@@ -40,16 +41,21 @@ class TangentBug(Planner):
         self.jump_threshold = jump_threshold
         self.follow_distance = 1.0
         self.follow_tolerance = 0.2
+        self.d_follow_tolerance = 0.25
+        self.current_following_obstacle: ObstacleObject | None = None
         
         self.visualizer = visualizer
         self.last_following_distance_heuristic = math.inf
-        self.m_value: NDArray[np.float64] | None = None
+        # d_followed: closest distance to the goal sensed while following an obstacle
+        self.m_value: float = math.inf
 
         self.state = TangentBugState.MOVE_TO_GOAL
         self.follow_path_direction = FollowDirection.CLOCKWISE
         self.direction = np.zeros(2)
     def update(self, observation: Observation):
-        print(self.state)
+        if self.dist(observation.position.position, self.goal) < self.goal_tolerance:
+                    self.state = TangentBugState.GOAL_REACHED
+                    return
         if observation.radial_array is None:
             raise Exception("Invalid observation for Tangent Bug")
         radialDists = observation.radial_array.measurements
@@ -66,7 +72,7 @@ class TangentBug(Planner):
                     self.move_to_goal(object_obstacles, pos, dists, angles)
                     return
                 case TangentBugState.FOLLOW_PATH:
-                    self.follow_path(pos, dists, angles)
+                    self.follow_path(pos, dists, angles, self.current_following_obstacle)
                     return
                 case _:
                     return
@@ -102,7 +108,7 @@ class TangentBug(Planner):
                     blocking_o = o
                     break
             if blocking_o is not None:
-                print(blocking_o)
+                
                 blocking_o_left_cartesian = self.radial_to_cart(blocking_o.r_left, blocking_o.left_bound, pos)
                 blocking_o_right_cartesian = self.radial_to_cart(blocking_o.r_right, blocking_o.right_bound, pos)
                 if self.distance_heuristic(pos, blocking_o_left_cartesian) < self.distance_heuristic(pos, blocking_o_right_cartesian):
@@ -110,16 +116,25 @@ class TangentBug(Planner):
                     self.follow_path_direction = FollowDirection.CLOCKWISE
                 else:
                     followed_o = blocking_o_right_cartesian
+                    
                     self.follow_path_direction = FollowDirection.COUNTERCLOCKWISE
                 self.direction = (followed_o - pos) / self.dist(followed_o, pos)  
                 if self.distance_heuristic(pos, followed_o) <= self.last_following_distance_heuristic:
                     
                     self.last_following_distance_heuristic = self.distance_heuristic(pos, followed_o)
                 else:
+                    self.current_following_obstacle = blocking_o
+                    self.has_hit_wall = False
                     self.state = TangentBugState.FOLLOW_PATH
-                    sensed_points = [self.radial_to_cart(dists[i], angles[i], pos) for i in range(len(dists)) if dists[i] < math.inf]
-                    m_point = min(sensed_points, key=lambda p: self.distance_heuristic(pos, p))
-                    self.m_value = self.distance_heuristic(pos, m_point)
+                    # Sample the m point only from rays that hit the blocking obstacle
+                    blocking_points = [
+                        self.radial_to_cart(dists[i], angles[i], pos)
+                        for i in range(len(dists))
+                        if dists[i] < math.inf
+                        and self.angle_in_range(angles[i], blocking_o.left_bound, blocking_o.right_bound)
+                    ]
+                    m_point = min(blocking_points, key=lambda p: self.dist(p, self.goal))
+                    self.m_value = self.dist(m_point, self.goal)
                     if self.visualizer is not None:
                         self.visualizer.add_point(m_point, "tab:purple", label="m point")
 
@@ -155,17 +170,45 @@ class TangentBug(Planner):
     
             
             
-    def follow_path(self, pos, dists, angles):
-        
-        closest_point = min([self.radial_to_cart(dists[i], angles[i], pos) for i in range(len(dists)) if dists[i] < math.inf], key=lambda p: self.dist(p, pos))
-        if self.distance_heuristic(pos, closest_point) < self.m_value:
+    def angle_in_range(self, angle, start, end):
+        # True if angle lies on the counterclockwise sweep from start to end, inclusive of both bounds
+        return (angle - start) % (2 * math.pi) <= (end - start) % (2 * math.pi)
+
+    def follow_path(self, pos, dists, angles, follows_obstacle):
+        if not self.has_hit_wall:
+            # Only consider rays that hit the obstacle being followed
+            obstacle_points = [
+                self.radial_to_cart(dists[i], angles[i], pos)
+                for i in range(len(dists))
+                if dists[i] < math.inf
+                and self.angle_in_range(angles[i], follows_obstacle.left_bound, follows_obstacle.right_bound)
+            ]
+            if len(obstacle_points) == 0:
+                # Lost sight of the followed obstacle, so head for the goal again
+                self.state = TangentBugState.MOVE_TO_GOAL
+                return
+            closest_point = min(obstacle_points, key=lambda p: self.dist(p, pos))
+            if self.dist(pos, closest_point) < self.follow_distance + self.follow_tolerance:
+                self.has_hit_wall = True
+            else:
+                # Head toward the followed obstacle until within follow distance
+                self.direction = (closest_point - pos) / self.dist(closest_point, pos)
+                return
+        viewed_points = [self.radial_to_cart(dists[i], angles[i], pos)
+                for i in range(len(dists))
+                if dists[i] < math.inf
+            ]
+        closest_point = min(viewed_points, key=lambda p: self.dist(p, pos))
+        # d_reach: distance to the goal from the closest point to it within line of sight
+        d_reach = min(self.dist(p, self.goal) for p in viewed_points)
+        # Leave once a visible point is closer to the goal than d_followed, which stays fixed while following
+        if d_reach < self.m_value - self.d_follow_tolerance:
             self.state = TangentBugState.MOVE_TO_GOAL
+            self.last_following_distance_heuristic = math.inf
             if self.visualizer is not None:
                 self.visualizer.add_point(pos, "tab:olive", label="leave point")
             return
-        if self.dist(pos, self.goal) < self.goal_tolerance:
-            self.state = TangentBugState.GOAL_REACHED
-            return
+        
         norm_vector = (pos - closest_point) / self.dist(closest_point, pos)
         transform_matrix = np.array([[1, 0], [0, 1]])
         if abs(self.dist(closest_point, pos) - self.follow_distance) > self.follow_tolerance:
