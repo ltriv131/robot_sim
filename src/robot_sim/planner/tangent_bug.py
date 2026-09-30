@@ -39,12 +39,14 @@ class TangentBug(Planner):
         self.offset_tolerance = offset_tolerance
         self.max_range = max_range
         self.jump_threshold = jump_threshold
-        self.follow_distance = 1.0
+        self.follow_distance = 0.7
         self.follow_tolerance = 0.2
-        self.d_follow_tolerance = 0.25
+        self.d_follow_tolerance = 0.2
         self.current_following_obstacle: ObstacleObject | None = None
         
         self.visualizer = visualizer
+        # Markers for the blocking obstacle's left and right Oi in move to goal, created on first use
+        self.oi_markers: dict = {}
         self.last_following_distance_heuristic = math.inf
         # d_followed: closest distance to the goal sensed while following an obstacle
         self.m_value: float = math.inf
@@ -55,6 +57,7 @@ class TangentBug(Planner):
     def update(self, observation: Observation):
         if self.dist(observation.position.position, self.goal) < self.goal_tolerance:
                     self.state = TangentBugState.GOAL_REACHED
+                    self.direction = np.zeros(2)
                     return
         if observation.radial_array is None:
             raise Exception("Invalid observation for Tangent Bug")
@@ -66,16 +69,14 @@ class TangentBug(Planner):
         object_obstacles = self.get_obstacles(O, angles, dists)
         if len(O) == 0:
             self.direction=(self.goal - pos)/(self.dist(self.goal, pos))
+            self.show_oi(None)
         else:
             match self.state:
                 case TangentBugState.MOVE_TO_GOAL:
                     self.move_to_goal(object_obstacles, pos, dists, angles)
-                    return
                 case TangentBugState.FOLLOW_PATH:
                     self.follow_path(pos, dists, angles, self.current_following_obstacle)
-                    return
-                case _:
-                    return
+        print(f"{self.state.name:12s} {self.follow_path_direction.name:16s} dir={np.round(self.direction, 2)}")
     def get_obstacles(self, O, angles, dists):
         objects = []
         for i in range(len(O)):
@@ -112,20 +113,24 @@ class TangentBug(Planner):
                 blocking_o_left_cartesian = self.radial_to_cart(blocking_o.r_left, blocking_o.left_bound, pos)
                 blocking_o_right_cartesian = self.radial_to_cart(blocking_o.r_right, blocking_o.right_bound, pos)
                 if self.distance_heuristic(pos, blocking_o_left_cartesian) < self.distance_heuristic(pos, blocking_o_right_cartesian):
+                    # Passing the lower-angle endpoint keeps the obstacle on the robot's left: a counterclockwise orbit
                     followed_o = blocking_o_left_cartesian
-                    self.follow_path_direction = FollowDirection.CLOCKWISE
+                    side = FollowDirection.COUNTERCLOCKWISE
                 else:
                     followed_o = blocking_o_right_cartesian
-                    
-                    self.follow_path_direction = FollowDirection.COUNTERCLOCKWISE
-                self.direction = (followed_o - pos) / self.dist(followed_o, pos)  
+                    side = FollowDirection.CLOCKWISE
                 if self.distance_heuristic(pos, followed_o) <= self.last_following_distance_heuristic:
-                    
+                    self.follow_path_direction = side
+                    self.direction = (followed_o - pos) / self.dist(followed_o, pos)
+                    self.show_oi(blocking_o_left_cartesian, blocking_o_right_cartesian, side)
                     self.last_following_distance_heuristic = self.distance_heuristic(pos, followed_o)
                 else:
+                    # Keep follow_path_direction from the last decreasing step, so following continues the way
+                    # the robot was already going rather than whichever side scores best at the switch
                     self.current_following_obstacle = blocking_o
                     self.has_hit_wall = False
                     self.state = TangentBugState.FOLLOW_PATH
+                    self.show_oi(None)
                     # Sample the m point only from rays that hit the blocking obstacle
                     blocking_points = [
                         self.radial_to_cart(dists[i], angles[i], pos)
@@ -141,6 +146,25 @@ class TangentBug(Planner):
             else:
                 self.last_following_distance_heuristic = math.inf
                 self.direction = (self.goal - pos) / self.dist(self.goal, pos)
+                self.show_oi(None)
+    def show_oi(self, left: NDArray[np.float64] | None, right: NDArray[np.float64] | None = None,
+                followed: FollowDirection | None = None):
+        # Draw the left and right Oi of the blocking obstacle, the followed one green, or hide both when there are none
+        if self.visualizer is None:
+            return
+        if left is None or right is None:
+            for marker in self.oi_markers.values():
+                marker.set_visible(False)
+            return
+        points = {FollowDirection.COUNTERCLOCKWISE: left, FollowDirection.CLOCKWISE: right}
+        for side, point in points.items():
+            color = "tab:green" if side == followed else "tab:orange"
+            if side not in self.oi_markers:
+                self.oi_markers[side] = self.visualizer.add_point(point, color)
+            else:
+                self.visualizer.move_point(self.oi_markers[side], point)
+                self.oi_markers[side].set_visible(True)
+            self.oi_markers[side].set_color(color)
     def radial_to_cart(self, r: float, angle: float, origin: NDArray[np.float64]) -> np.ndarray:
         # Sensor rays are cast from the robot at world-frame angles, so offset from the robot's position
         return origin + np.array([r * math.cos(angle), r * math.sin(angle)])
@@ -214,10 +238,11 @@ class TangentBug(Planner):
         if abs(self.dist(closest_point, pos) - self.follow_distance) > self.follow_tolerance:
             self.direction = norm_vector * -1.0*np.sign(self.dist(closest_point, pos) - self.follow_distance)
             return
+        # Rotating the outward normal +90 degrees orbits the obstacle counterclockwise, -90 clockwise
         if self.follow_path_direction == FollowDirection.COUNTERCLOCKWISE:
-            transform_matrix = np.array([[0, 1], [-1, 0]])
-        else:
             transform_matrix = np.array([[0, -1], [1, 0]])
+        else:
+            transform_matrix = np.array([[0, 1], [-1, 0]])
         tangent_vector = transform_matrix @ norm_vector
         self.direction = tangent_vector
         
