@@ -155,6 +155,7 @@ def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "spiral"
     world = World(size_x=20, size_y=20, obstacles=SCENARIOS[scenario]())
     visualizer = Visualizer(world, trail_interval=0.05)
+    visualizer.add_point(goal, "gold", label="goal", marker_style="*", markersize=16)
     robot = Robot(position=np.array([1.0, 1.0]), orientation=0.0, max_linear_speed=4.0)
     planner = BugPlanner(goal=goal, visualizer=visualizer)
     planner_tangent = TangentBug(goal=goal, visualizer=visualizer)

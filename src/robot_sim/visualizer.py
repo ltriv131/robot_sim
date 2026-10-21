@@ -34,10 +34,11 @@ class Visualizer:
         self._legend_labels: set[str] = set()
         self.start_pos: NDArray[np.float64] | None = None
 
-    def add_point(self, position: NDArray[np.float64], color: str, label: str | None = None) -> Line2D:
+    def add_point(self, position: NDArray[np.float64], color: str, label: str | None = None,
+                  marker_style: str = "o", markersize: float = 7) -> Line2D:
         if label in self._legend_labels:
             label = None
-        (marker,) = self.ax.plot([position[0]], [position[1]], "o", color=color, markersize=7, label=label, zorder=3)
+        (marker,) = self.ax.plot([position[0]], [position[1]], marker_style, color=color, markersize=markersize, label=label, zorder=3)
         if label is not None:
             self._legend_labels.add(label)
             self.ax.legend(loc="upper left", fontsize="small")
